@@ -7,9 +7,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
-from model import File
-
-parent_folder_id = "1jypqabHFF-KOW6YPk4yXEhyqEBkNphw5"
+from model import File, OBSIDIAN_BASE_PATH, directory_map
 
 
 def get_gdrive_svc():
@@ -18,13 +16,13 @@ def get_gdrive_svc():
     return service
 
 
-def upload_file(fpath: str):
-    fname = os.path.basename(fpath)
+def upload_file(file: File):
+    fname = os.path.basename(file.path)
 
     try:
         # create drive api client
-        file_metadata = {"name": fname, "parents": [parent_folder_id]}
-        media = MediaFileUpload(fpath)
+        file_metadata = {"name": fname, "parents": [file.gdrive_path]}
+        media = MediaFileUpload(file.path)
         file = (
             get_gdrive_svc().files()
             .create(body=file_metadata, media_body=media, fields="id")
@@ -40,11 +38,9 @@ def upload_file(fpath: str):
 
 def list_gdrive_files(folder_path) -> Iterable[File]:
     # list files in the google-drive
-    FILE_ATTRS_TO_FETCH = ('name', 'md5Checksum')
-
     get_files_response = get_gdrive_svc().files().list(
         q=f"'{folder_path}' in parents",
-        fields="files({})".format(','.join(FILE_ATTRS_TO_FETCH))
+        fields="files({})".format(','.join(('name', 'md5Checksum')))
     ).execute()
 
     files = get_files_response.get("files", [])
@@ -53,20 +49,20 @@ def list_gdrive_files(folder_path) -> Iterable[File]:
 
 
 def list_dir_files(folder_path) -> Iterable[File]:
-    for file_path in os.listdir(folder_path):
-        abs_path = os.path.join(folder_path, file_path)
-        if os.path.isfile(abs_path):
+    for root, dirs, files in os.walk(folder_path):
+        for file in files:
+            abs_path = str(os.path.join(root, file))
             with open(abs_path, mode='rb') as f:
                 md5_checksum = hashlib.md5(f.read()).hexdigest()
                 yield File(abs_path, md5_checksum)
 
 
-def sync(vault_path: str, gdrive_dir_id):
+def sync(vault_path: str):
     """
     :param vault_path: directory path on the local system where all the files are stored
     """
     # Step 1: list all the files in the gdrive
-    gdrive_files = list_gdrive_files(gdrive_dir_id)
+    gdrive_files = list_gdrive_files(directory_map[''])
     gdrive_hash_map = {f.md5_checksum: f for f in gdrive_files}
 
     # Step 2: list all the local files in the vault
@@ -77,9 +73,9 @@ def sync(vault_path: str, gdrive_dir_id):
 
     # Step 3: Upload all the not_uploaded files
     for file in not_uploaded_files:
-        file_id = upload_file(file.path)
+        file_id = upload_file(file)
         print(f'{file.path} uploaded with id: {file_id}')
 
 
 if __name__ == "__main__":
-    sync("/mnt/c/Users/rishabh.bhatnagar/OneDrive - Xebia/Documents/obsidian-value", parent_folder_id)
+    sync(OBSIDIAN_BASE_PATH)
