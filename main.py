@@ -11,7 +11,9 @@ from model import File, OBSIDIAN_BASE_PATH, directory_map
 
 
 def get_gdrive_svc():
-    creds, _ = google.auth.load_credentials_from_file('creds.json')
+    creds, _ = google.auth.load_credentials_from_file(
+        os.path.join(os.path.abspath(os.path.dirname(__file__)), 'gcloud-creds.json')
+    )
     service = build("drive", "v3", credentials=creds)
     return service
 
@@ -36,16 +38,17 @@ def upload_file(file: File):
     return file.get("id")
 
 
-def list_gdrive_files(folder_path) -> Iterable[File]:
+def list_gdrive_files() -> Iterable[File]:
     # list files in the google-drive
-    get_files_response = get_gdrive_svc().files().list(
-        q=f"'{folder_path}' in parents",
-        fields="files({})".format(','.join(('name', 'md5Checksum')))
-    ).execute()
+    for dir_name, drive_id in directory_map.items():
+        get_files_response = get_gdrive_svc().files().list(
+            q=f"'{drive_id}' in parents",
+            fields="files({})".format(','.join(('name', 'md5Checksum')))
+        ).execute()
 
-    files = get_files_response.get("files", [])
-    for file in files:
-        yield File(file.get("name"), file.get("md5Checksum"))
+        files = get_files_response.get("files", [])
+        for file in files:
+            yield File(f'{dir_name}/{file.get("name")}' if dir_name else file.get('name'), file.get("md5Checksum"))
 
 
 def list_dir_files(folder_path) -> Iterable[File]:
@@ -62,7 +65,7 @@ def sync(vault_path: str):
     :param vault_path: directory path on the local system where all the files are stored
     """
     # Step 1: list all the files in the gdrive
-    gdrive_files = list_gdrive_files(directory_map[''])
+    gdrive_files = list(list_gdrive_files())
     gdrive_hash_map = {f.md5_checksum: f for f in gdrive_files}
 
     # Step 2: list all the local files in the vault
